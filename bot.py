@@ -6,6 +6,7 @@ import base64
 import asyncio
 import logging
 from typing import Optional
+const port = process.env.PORT || 4000 
 
 from PIL import Image, UnidentifiedImageError
 from groq import Groq
