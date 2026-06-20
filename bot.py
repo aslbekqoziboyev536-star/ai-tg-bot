@@ -1,76 +1,96 @@
 import os
-import logging
 import asyncio
+import logging
+import base64
+
+from groq import Groq
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, ContextTypes, filters
 
-from groq import Groq
+logging.basicConfig(level=logging.INFO)
 
-logging.basicConfig(
-    format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
-    level=logging.INFO
-)
-
-# ENV
 TOKEN = os.getenv("BOT_TOKEN")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
-# DEBUG PRINT (Render logda ko‘rasan)
-print("🔑 BOT_TOKEN:", TOKEN)
-print("🔑 GROQ_API_KEY:", GROQ_API_KEY)
-
-# Groq client (agar key bo‘lsa)
-client = Groq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
+client = Groq(api_key=GROQ_API_KEY)
 
 
-# 1️⃣ START COMMAND TEST
+# 🧠 TEXT + IMAGE ANALYSIS CORE
+def ask_ai_text(text: str) -> str:
+    res = client.chat.completions.create(
+        model="llama-3.1-70b-versatile",
+        messages=[
+            {"role": "system", "content": "Sen analiz qiluvchi AI botsan."},
+            {"role": "user", "content": text}
+        ]
+    )
+    return res.choices[0].message.content
+
+
+def ask_ai_image(image_bytes: bytes) -> str:
+    img_base64 = base64.b64encode(image_bytes).decode()
+
+    res = client.chat.completions.create(
+        model="llama-3.2-vision-preview",
+        messages=[
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "Bu rasmni analiz qil"},
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": f"data:image/jpeg;base64,{img_base64}"
+                        }
+                    }
+                ]
+            }
+        ]
+    )
+    return res.choices[0].message.content
+
+
+# /start
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("✅ BOT ISHLAYAPTI (START OK)")
+    await update.message.reply_text("🤖 AI bot tayyor. Text yoki rasm yuboring.")
 
 
-# 2️⃣ HANDLER TEST
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# TEXT HANDLER
+async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_text = update.message.text
+    reply = ask_ai_text(user_text)
+    await update.message.reply_text(reply)
 
-    # STEP 1: handler test
-    if user_text.lower() == "test":
-        await update.message.reply_text("🧪 HANDLER OK")
-        return
 
-    # STEP 2: ENV test
-    if not GROQ_API_KEY:
-        await update.message.reply_text("❌ GROQ_API_KEY YO‘Q (ENV muammo)")
-        return
+# IMAGE HANDLER
+async def handle_image(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    photo = update.message.photo[-1]
+    file = await photo.get_file()
+    data = await file.download_as_bytearray()
 
-    # STEP 3: AI test
-    try:
-        response = client.chat.completions.create(
-            model="llama-3.1-70b-versatile",
-            messages=[
-                {"role": "system", "content": "Sen qisqa va aniq javob beradigan botsan."},
-                {"role": "user", "content": user_text}
-            ]
-        )
-
-        reply = response.choices[0].message.content
-        await update.message.reply_text(reply)
-
-    except Exception as e:
-        await update.message.reply_text(f"❌ GROQ ERROR: {e}")
+    reply = ask_ai_image(bytes(data))
+    await update.message.reply_text(reply)
 
 
 # MAIN
-def main():
+async def main():
     if not TOKEN:
-        raise ValueError("BOT_TOKEN topilmadi!")
+        raise ValueError("BOT_TOKEN yo‘q!")
+    if not GROQ_API_KEY:
+        raise ValueError("GROQ_API_KEY yo‘q!")
 
     app = Application.builder().token(TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
+    app.add_handler(MessageHandler(filters.PHOTO, handle_image))
 
-    app.run_polling()
+    await app.initialize()
+    await app.start()
+    await app.updater.start_polling()
+
+    await asyncio.Event().wait()
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
