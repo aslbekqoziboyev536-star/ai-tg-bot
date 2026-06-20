@@ -100,7 +100,7 @@ def groq_chat_completion(model: str, messages: list[dict]) -> str:
         model=model,
         messages=messages,
         temperature=0.2,
-        max_completion_tokens=900,
+        max_tokens=900,
     )
     content = resp.choices[0].message.content
     return sanitize_text(content)
