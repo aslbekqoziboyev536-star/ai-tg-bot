@@ -2,10 +2,9 @@ import os
 import io
 import base64
 import logging
-from typing import Optional
 
 from PIL import Image
-from groq import Groq, BadRequestError
+from groq import Groq
 from flask import Flask, request
 import telebot
 
@@ -33,21 +32,24 @@ SYSTEM_PROMPT_IMAGE = (
     "lekin ko‘rinmaydigan narsani aniq deb aytma."
 )
 
-# Global client
-groq_client: Optional[Groq] = None
+# Global Groq client
+groq_client = None
 
-def get_client() -> Groq:
+def get_client():
+    global groq_client
     if groq_client is None:
-        raise RuntimeError("Groq client hali initialize qilinmagan.")
+        if not GROQ_API_KEY:
+            raise RuntimeError("GROQ_API_KEY topilmadi.")
+        groq_client = Groq(api_key=GROQ_API_KEY)
     return groq_client
 
 # ====================== YORDAMCHI FUNKSIYALAR ======================
-def sanitize_text(text: Optional[str]) -> str:
+def sanitize_text(text):
     if not text:
         return ""
-    return text.strip()
+    return str(text).strip()
 
-def split_message(text: str, limit: int = 3900) -> list[str]:
+def split_message(text: str, limit: int = 3900):
     text = text.strip()
     if not text:
         return ["(bo‘sh javob)"]
@@ -65,7 +67,7 @@ def compress_image_for_groq(raw_bytes: bytes) -> bytes:
                 return data
         return data or raw_bytes
 
-def groq_chat_completion(model: str, messages: list[dict]) -> str:
+def groq_chat_completion(model: str, messages: list):
     client = get_client()
     resp = client.chat.completions.create(
         model=model,
@@ -73,9 +75,10 @@ def groq_chat_completion(model: str, messages: list[dict]) -> str:
         temperature=0.2,
         max_tokens=900,
     )
-    return sanitize_text(resp.choices[0].message.content)
+    content = resp.choices[0].message.content
+    return sanitize_text(content)
 
-# ====================== FLASK APP ======================
+# ====================== FLASK ======================
 app = Flask(__name__)
 bot = telebot.TeleBot(BOT_TOKEN)
 
@@ -90,10 +93,10 @@ def webhook():
 
 @app.route('/')
 def index():
-    return "🤖 Groq AI Bot ishlamoqda!"
+    return "🤖 Groq AI Bot ishlamoqda! ✅"
 
-# ====================== ANALIZ FUNKSIYALARI ======================
-def analyze_text_sync(user_text: str) -> str:
+# ====================== ANALIZ ======================
+def analyze_text_sync(user_text: str):
     for model in TEXT_MODELS:
         try:
             return groq_chat_completion(
@@ -107,7 +110,7 @@ def analyze_text_sync(user_text: str) -> str:
             logger.exception(f"Text model xatosi: {model}")
     return "❌ Matn tahlilida xatolik yuz berdi."
 
-def analyze_image_sync(image_bytes: bytes, prompt: str) -> str:
+def analyze_image_sync(image_bytes: bytes, prompt: str):
     prepared = compress_image_for_groq(image_bytes)
     image_b64 = base64.b64encode(prepared).decode("ascii")
     
@@ -133,7 +136,7 @@ def analyze_image_sync(image_bytes: bytes, prompt: str) -> str:
 # ====================== HANDLERLAR ======================
 @bot.message_handler(commands=['start', 'help'])
 def send_welcome(message):
-    bot.reply_to(message, "🤖 Salom! Menga matn yoki rasm yuboring.")
+    bot.reply_to(message, "🤖 Salom! Menga matn yoki rasm yuboring. Groq AI yordamida javob beraman.")
 
 @bot.message_handler(func=lambda m: True)
 def handle_message(message):
@@ -153,24 +156,20 @@ def handle_message(message):
         for chunk in split_message(reply):
             bot.reply_to(message, chunk)
     except Exception as e:
-        logger.exception("Message handler xatosi")
-        bot.reply_to(message, f"❌ Xatolik: {str(e)[:500]}")
+        logger.exception("Handler xatosi")
+        bot.reply_to(message, f"❌ Xatolik: {str(e)[:400]}")
 
-# ====================== SERVERNI ISHGA TUSHIRISH ======================
+# ====================== MAIN ======================
 if __name__ == "__main__":
-    if not BOT_TOKEN or not GROQ_API_KEY:
-        logger.error("BOT_TOKEN yoki GROQ_API_KEY topilmadi!")
+    if not BOT_TOKEN:
+        logger.error("BOT_TOKEN topilmadi!")
         exit(1)
 
-    # Clientni yaratamiz
-    global groq_client
-    groq_client = Groq(api_key=GROQ_API_KEY)
-
-    # Webhookni o‘rnatish
+    # Webhook o‘rnatish
     bot.remove_webhook()
-    webhook_url = f"https://{os.environ.get('RENDER_EXTERNAL_HOSTNAME')}/{BOT_TOKEN}"
+    webhook_url = f"https://{os.environ.get('RENDER_EXTERNAL_HOSTNAME', 'your-app.onrender.com')}/{BOT_TOKEN}"
     bot.set_webhook(url=webhook_url)
-    logger.info(f"✅ Webhook o‘rnatildi: {webhook_url}")
+    logger.info(f"✅ Webhook muvaffaqiyatli o‘rnatildi: {webhook_url}")
 
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
