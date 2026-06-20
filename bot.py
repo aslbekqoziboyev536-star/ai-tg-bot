@@ -1,16 +1,13 @@
 import os
 import io
-import re
-import html
 import base64
-import asyncio
 import logging
 from typing import Optional
 
 from PIL import Image
 from groq import Groq, BadRequestError
 from flask import Flask, request
-import telebot  # python-telegram-bot emas, balki pyTelegramBotAPI ishlatamiz webhook uchun sodda bo'lishi uchun
+import telebot
 
 # ====================== SOZLAMALAR ======================
 BOT_TOKEN = os.getenv("BOT_TOKEN")
@@ -36,11 +33,12 @@ SYSTEM_PROMPT_IMAGE = (
     "lekin ko‘rinmaydigan narsani aniq deb aytma."
 )
 
+# Global client
 groq_client: Optional[Groq] = None
 
 def get_client() -> Groq:
     if groq_client is None:
-        raise RuntimeError("Groq client initialize qilinmagan.")
+        raise RuntimeError("Groq client hali initialize qilinmagan.")
     return groq_client
 
 # ====================== YORDAMCHI FUNKSIYALAR ======================
@@ -94,11 +92,7 @@ def webhook():
 def index():
     return "🤖 Groq AI Bot ishlamoqda!"
 
-# ====================== BOT HANDLERLAR ======================
-@bot.message_handler(commands=['start', 'help'])
-def send_welcome(message):
-    bot.reply_to(message, "🤖 Salom! Menga matn yoki rasm yuboring. Men Groq AI yordamida tahlil qilaman.")
-
+# ====================== ANALIZ FUNKSIYALARI ======================
 def analyze_text_sync(user_text: str) -> str:
     for model in TEXT_MODELS:
         try:
@@ -136,6 +130,11 @@ def analyze_image_sync(image_bytes: bytes, prompt: str) -> str:
             logger.exception(f"Vision model xatosi: {model}")
     return "❌ Rasm tahlilida xatolik yuz berdi."
 
+# ====================== HANDLERLAR ======================
+@bot.message_handler(commands=['start', 'help'])
+def send_welcome(message):
+    bot.reply_to(message, "🤖 Salom! Menga matn yoki rasm yuboring.")
+
 @bot.message_handler(func=lambda m: True)
 def handle_message(message):
     try:
@@ -163,6 +162,7 @@ if __name__ == "__main__":
         logger.error("BOT_TOKEN yoki GROQ_API_KEY topilmadi!")
         exit(1)
 
+    # Clientni yaratamiz
     global groq_client
     groq_client = Groq(api_key=GROQ_API_KEY)
 
@@ -170,7 +170,7 @@ if __name__ == "__main__":
     bot.remove_webhook()
     webhook_url = f"https://{os.environ.get('RENDER_EXTERNAL_HOSTNAME')}/{BOT_TOKEN}"
     bot.set_webhook(url=webhook_url)
-    logger.info(f"Webhook o‘rnatildi: {webhook_url}")
+    logger.info(f"✅ Webhook o‘rnatildi: {webhook_url}")
 
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
