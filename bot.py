@@ -338,7 +338,7 @@ async def post_init(app) -> None:
     ])
 
 
-def main() -> None:
+async def main() -> None:
     app = (
         ApplicationBuilder()
         .token(TELEGRAM_TOKEN)
@@ -350,21 +350,21 @@ def main() -> None:
     app.add_handler(CommandHandler("menu",  cmd_menu))
     app.add_handler(CommandHandler("lang",  cmd_lang))
     app.add_handler(CommandHandler("clear", cmd_clear))
-    app.add_handler(CommandHandler("help",  lambda u, c: handle_callback(
-        type("FakeUpdate", (), {"callback_query": type("Q", (), {
-            "answer": lambda: None, "from_user": u.effective_user,
-            "data": "help",
-            "edit_message_text": u.message.reply_text
-        })()})(), c
-    )))
     app.add_handler(CallbackQueryHandler(handle_callback))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     app.add_handler(MessageHandler(filters.VOICE, handle_voice))
 
     logger.info("🚀 Bot is running…")
-    app.run_polling(drop_pending_updates=True)
+    async with app:
+        await app.initialize()
+        await app.start()
+        await app.updater.start_polling(drop_pending_updates=True)
+        # Run until interrupted
+        await app.updater.idle()
+        await app.stop()
 
 
 if __name__ == "__main__":
-    main()
+    import asyncio
+    asyncio.run(main())
